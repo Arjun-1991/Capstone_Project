@@ -1,0 +1,250 @@
+---
+title: "Capstone Project_GDA_Bellabeat"
+author: "Arjun Venugopal"
+date: '2022-05-16'
+output:
+  pdf_document: default
+  html_document: default
+---
+## Opening libraries
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(tidyr)
+## Importing data sets
+Daily_Activity <- read.csv("dailyActivity_merged.csv")
+Daily_Sleep <- read.csv("sleepDay_merged.csv")
+Hourly_steps <- read.csv("hourlySteps_merged.csv")
+## Preview our data sets
+head(Daily_Activity)
+str(Daily_Activity)
+head(Daily_Sleep)
+str(Daily_Sleep)
+head(Hourly_steps)
+str(Hourly_steps)
+# DATA CLEANING
+## Verifying number of users
+unique(Daily_Activity$Id)
+unique(Daily_Sleep$Id)
+unique(Hourly_steps$Id)
+## Find number of duplicates
+sum(duplicated(Daily_Activity))
+sum(duplicated(Daily_Sleep))
+sum(duplicated(Hourly_steps))
+## Removing duplicates in daily_sleep df
+Daily_Activity <- Daily_Activity %>% 
+distinct() %>% 
+drop_na
+Daily_Sleep <- Daily_Sleep %>%
+distinct() %>% 
+drop_na
+Hourly_steps <- Hourly_steps%>%
+distinct() %>% 
+drop_na
+## Verify that duplicates have been removed
+sum(duplicated(Daily_Activity))
+sum(duplicated(Daily_Sleep))
+sum(duplicated(Hourly_steps))
+## Consistency of date and time columns 
+Daily_Activity <- Daily_Activity %>%
+rename(date = ActivityDate) %>%
+mutate(date = as_date(date, format = "%m/%d/%Y"))
+Daily_Sleep <- Daily_Sleep %>%
+rename(date = SleepDay) %>%
+mutate(date = as_date(date,format ="%m/%d/%Y %I:%M:%S %p" , tz=Sys.timezone()))
+Hourly_steps <- Hourly_steps %>% 
+rename(date_time = ActivityHour) %>% 
+mutate(date_time = as.POSIXct(date_time,format ="%m/%d/%Y %I:%M:%S %p" , tz=Sys.timezone()))
+## Verify the format of edited column
+str(Daily_Activity)
+str(Daily_Sleep)
+str(Hourly_steps)
+## After confirming the date columns in all datasets is the same, then merge the daily_activity and daily_sleep dfs
+daily_activity_sleep <- merge(Daily_Activity, Daily_Sleep, by = c ("Id", "date"))
+## Verify new data frame, wheather it mergerd or not
+glimpse(daily_activity_sleep)
+## Data merged successfully
+## Change all variables in to lower cases
+names(daily_activity_sleep) <- tolower(names(daily_activity_sleep))
+glimpse(daily_activity_sleep)
+# ANALYZING DATA
+## Finding the average of daily_steps, daily_calories and daily_sleep of each individual
+daily_average <- daily_activity_sleep %>%
+  group_by(id) %>%
+  summarise (mean_daily_steps = mean(totalsteps), mean_daily_calories = mean(calories), mean_daily_sleep = mean(totalminutesasleep))
+## The new mean dataframe created
+## Classify the customers by mean_daily_steps
+user_type <- daily_average %>%
+mutate(user_type = case_when(mean_daily_steps < 5000 ~ "sedentary", mean_daily_steps >= 5000 & mean_daily_steps < 7499 ~ "lightly active", mean_daily_steps >= 7500 & mean_daily_steps < 9999 ~ "fairly active", mean_daily_steps >= 10000 ~ "very active"))
+## Review the classification
+head(user_type)
+## Determine the percentage of each user type
+user_type_percent <- user_type %>%
+group_by(user_type) %>%
+summarise(total = n()) %>%
+mutate(totals = sum(total)) %>%
+group_by(user_type) %>%
+summarise(total_percent = total / totals) %>%
+mutate(labels = scales::percent(total_percent))
+user_type_percent$user_type <- factor(user_type_percent$user_type , levels = c("very active", "fairly active", "lightly active", "sedentary"))
+## Review the percentage
+head(user_type_percent)
+# VISUALIZATION
+user_type_percent %>%
+ggplot(aes(x=user_type, y=total_percent, fill=user_type)) +
+geom_col(aes(user_type, labels))
+## Analysis of sleep and steps
+weekday_steps_sleep <- daily_activity_sleep %>%
+mutate(weekday = weekdays(date))
+weekday_steps_sleep$weekday <- ordered(weekday_steps_sleep$weekday, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+weekday_steps_sleep <- weekday_steps_sleep %>%
+group_by(weekday) %>%
+summarise(dailysteps = mean(totalsteps), dailysleep = mean(totalminutesasleep))
+## Verify the mean table
+head(weekday_steps_sleep)
+## Visaualization of steps and sleep
+weekday_steps_sleep %>%
+ggplot(aes(x=weekday, y=dailysteps, color = weekday)) + geom_col(aes(weekday, dailysteps, fill = weekday)) + labs(title = "Daily steps per weekday")
+### Users walk daily amount of around 7500 steps except sunday
+weekday_steps_sleep %>%
+ggplot(aes(x=weekday, y=dailysleep)) + geom_col(aes(weekday, dailysleep)) + labs(title = "Dailysleep per weekday")
+### Users don't sleep minimum 8 hour, everyone sleep around 6 hour
+## Findout the time when users gets more active in a day using hourly_steps_merged
+hoursteps <- Hourly_steps
+### Changing variables in to lowercase letters
+names(hoursteps) <- tolower(names(hoursteps))
+### Converting date string in to date-time 
+hoursteps <- hoursteps %>% 
+rename(date_time = activityhour) %>% 
+mutate(date_time = as.POSIXct(date_time,format ="%m/%d/%Y %I:%M:%S %p" , tz=Sys.timezone()))
+### Checking wheather the string format changed or not
+glimpse(hoursteps)
+### Separating the date-time in to two different columns
+hoursteps <- hoursteps %>%
+separate(date_time, into = c("date", "time"), sep= " ") %>%
+mutate(date = ymd(date))
+### Visualization of hour steps through out a day
+hoursteps %>%
+group_by(time) %>%
+summarize(average_steps = mean(steptotal)) %>%
+ggplot() +
+geom_col(mapping = aes(x=time, y = average_steps, fill = average_steps)) + 
+labs(title = "Hourly steps per day", x="", y="") + 
+scale_fill_gradient(low = "green", high = "red")+
+theme(axis.text.x = element_text(angle = 90))
+### Users more active in between 7AM and 9PM. within this time range, most active in between 4PM and 5PM(after office time) and 12PM and 2PM(Lunch time)
+## Find out the relation between daily step v/s daily sleep and daily step v/s calories
+glimpse(daily_activity_sleep)
+ggarrange(
+ggplot(daily_activity_sleep, aes(x=totalsteps, y=totalminutesasleep))+
+  geom_jitter() +
+  geom_smooth(color = "red") + 
+  labs(title = "Daily steps vs Minutes asleep", x = "Daily steps", y= "Minutes asleep") +
+   theme(panel.background = element_blank(),
+        plot.title = element_text( size=14)), 
+ggplot(daily_activity_sleep, aes(x=totalsteps, y=calories))+
+  geom_jitter() +
+  geom_smooth(color = "red") + 
+  labs(title = "Daily steps vs Calories", x = "Daily steps", y= "Calories") +
+   theme(panel.background = element_blank(),
+        plot.title = element_text( size=14))
+)
+### No relation between sleep and steps while relation is there in between daily steps and calories : As more steps, more calories burned
+## Use of smart devices on day basis
+dailyuse <- daily_activity_sleep %>%
+group_by(id) %>%
+summarise(daysused = sum(n())) %>%
+mutate(usage = case_when(
+  daysused >= 1 & daysused <= 10 ~ "low use",
+  daysused >= 11 & daysused <= 20 ~ "moderate use",
+  daysused >= 21 & daysused <= 31 ~ "heavy use"
+  ))
+user_type_percent <- dailyuse %>%
+group_by(usage) %>%
+summarise(total = n()) %>%
+mutate(total1 = sum(total)) %>%
+group_by(usage) %>%
+summarise(user_percent = total / total1) %>%
+mutate(labels = scales :: percent(user_percent))
+glimpse(user_type_percent)
+user_type_percent$labels <- factor(user_type_percent$labels)
+
+user_type_percent <- dailyuse %>%
+group_by(usage) %>%
+summarise(total = n()) %>%
+mutate(total1 = sum(total)) %>%
+group_by(usage) %>%
+summarise(user_percent = total / total1) %>%
+mutate(labels = scales :: percent(user_percent))
+user_type_percent$usage <- factor(user_type_percent$usage, levels = c("heavy use", "low use", "moderate use"))
+
+glimpse(user_type_percent)
+
+user_type_percent %>%
+ggplot(aes(x = usage,y = labels, fill=usage)) + 
+geom_col() + labs(title = "Daily use of smart devices")
+### Observation: Around 50% users use their device 21 to 31 days, around 12% users use their device use their device and 38% users use their device very rarely
+
+## Use of smart devices on hour basis per day
+daily_use_merged <- merge(daily_activity_sleep, dailyuse, by = c("id"))
+glimpse(daily_use_merged)
+daily_use_merged$usage <- factor(daily_use_merged$usage)
+glimpse(daily_use_merged)
+minutes_worn <- daily_use_merged %>%
+mutate(total_mins_worn = veryactiveminutes + fairlyactiveminutes + lightlyactiveminutes + sedentaryminutes) %>%
+mutate(total_worn_percent = (total_mins_worn / 1440) * 100) %>%
+mutate(worn = case_when(
+            total_worn_percent <= 100 & total_worn_percent > 67 ~ "Almost full hours a day",
+            total_worn_percent <= 67 & total_worn_percent >= 38 ~ "More than half of a day",
+            total_worn_percent < 38 & total_worn_percent > 0 ~ "Working time only"))
+### Classification based on time worn
+minute_worn_percent <- minutes_worn %>%
+  group_by(worn) %>%
+  summarise(total = n()) %>%
+  mutate(totals = sum(total)) %>%
+  group_by(worn) %>%
+  summarise(totalpercent = total / totals) %>%
+  mutate(labels = scales :: percent(totalpercent))
+
+heavyuse_worn_minutes <- minutes_worn %>%
+  filter(usage == "heavy use") %>%
+  group_by(worn) %>%
+  summarise(total = n()) %>%
+  mutate(totals = sum(total)) %>%
+  group_by(worn) %>%
+  summarise(totalpercent = total / totals) %>%
+  mutate(labels = scales :: percent(totalpercent))
+
+moderateuse_worn_minutes <- minutes_worn %>%
+  filter(usage == "moderate use") %>%
+  group_by(worn) %>%
+  summarise(total = n()) %>%
+  mutate(totals = sum(total)) %>%
+  group_by(worn) %>%
+  summarise(totalpercent = total / totals) %>%
+  mutate(labels = scales :: percent(totalpercent))
+
+lowuse_worn_minutes <- minutes_worn %>%
+  filter(usage == "low use") %>%
+  group_by(worn) %>%
+  summarise(total = n()) %>%
+  mutate(totals = sum(total)) %>%
+  group_by(worn) %>%
+  summarise(totalpercent = total / totals) %>%
+  mutate(labels = scales :: percent(totalpercent))
+  
+minute_worn_percent$worn <- factor(minute_worn_percent$worn, levels = c("Almost full hours a day", "More than half of a day", "Working time only"))
+heavyuse_worn_minutes$worn <- factor(heavyuse_worn_minutes$worn, levels = c("Almost full hours a day", "More than half of a day", "Working time only"))
+moderateuse_worn_minutes$worn <- factor(moderateuse_worn_minutes$worn, levels = c("Almost full hours a day", "More than half of a day", "Working time only"))
+lowuse_worn_minutes$worn <- factor(lowuse_worn_minutes$worn, levels = c("Almost full hours a day", "More than half of a day", "Working time only"))
+
+minute_worn_percent%>%
+ggplot(aes(x = worn ,y= labels, fill = worn)) + geom_col() + labs(title = "Time worn per day") + theme(axis.text.x = element_text(angle = 90))
+heavyuse_worn_minutes%>%
+ggplot(aes(x = worn ,y= labels, fill = worn)) + geom_col() + labs(title = "Heavy users per day") + theme(axis.text.x = element_text(angle = 90))
+moderateuse_worn_minutes%>%
+ggplot(aes(x = worn ,y= labels, fill = worn)) + geom_col() + labs(title = "Moderate users per day") + theme(axis.text.x = element_text(angle = 90))
+lowuse_worn_minutes%>%
+ggplot(aes(x = worn ,y= labels, fill = worn)) + geom_col() + labs(title = "Moderate users per day") + theme(axis.text.x = element_text(angle = 90))
+### Majority of the users use their device more than almost all hours a day( more than 67% a day)   among heavy users and low users, majority users use almost full hours day  
+### Conclusion is that users use this device not only for the office purpose but also for monitoring the health all time   The company must improve the service such as battery backup, shock proof, water resistant and fashion for the all time use   this may be very helpful to the persons who live alone ina a flat, patients and old age persons, they need to monitor their health records at anytime   If any discount coupons provided to the patients and old age persons may increases the sales among these persons  
